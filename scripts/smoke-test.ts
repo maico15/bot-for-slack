@@ -6,7 +6,7 @@ import { classify } from '../src/intents';
 
 // Must mirror DEFAULT_ESCALATION_RE in src/index.ts exactly.
 const KEYWORD_RE =
-  /mass issue|outage|multiple agents|many agents|since\s+\d|abandoned rate|sev\d|\burgent\b|\bdown\b|not receiving inbound/i;
+  /\b(outage|mass\s+issue|multiple\s+agents|many\s+agents|no\s+inbound|not\s+receiving\s+inbound|since\s+\d{1,2}(:\d{2})?\s*(am|pm)?|abandoned\s+rate|sev\d)\b/i;
 
 function shouldEscalate(text: string): boolean {
   const intent = classify(text);

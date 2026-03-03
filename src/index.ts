@@ -24,25 +24,45 @@ if (ALLOWED_CHANNELS.length === 0) {
 const ESCALATION_USER_ID = process.env.ESCALATION_USER_ID!;
 
 // Keywords and reply templates are defined in config/intents.yml.
-// ESCALATION_KEYWORDS: optional comma-separated regex parts that trigger an
-// escalation DM independently of the intent's own escalation flag.
-// Falls back to DEFAULT_ESCALATION_RE when the env var is not set.
-// Keyword escalation fires ONLY when no intent matched (unknown).
-// Matched intents with escalation:false are never escalated, even if keywords appear in the text.
-// \b guards on 'urgent' and 'down' prevent false matches (e.g. "urgently", "download").
-const DEFAULT_ESCALATION_RE = /mass issue|outage|multiple agents|many agents|since\s+\d|abandoned rate|sev\d|\burgent\b|\bdown\b|not receiving inbound/i;
+// Keyword escalation applies ONLY when no intent matched (unknown messages).
+// Matched intents own their escalation flag exclusively — keywords are ignored.
+//
+// ESCALATION_KEYWORDS env override (optional):
+//   • Omitted / empty  → DEFAULT_ESCALATION_RE is used
+//   • Raw regex        → value must start with '/' e.g. /pattern/i
+//   • Comma-separated  → each term is regex-escaped and wrapped with \b...\b
+//                        e.g. "outage,sev1,no inbound"  (no raw regex chars needed)
+const DEFAULT_ESCALATION_RE =
+  /\b(outage|mass\s+issue|multiple\s+agents|many\s+agents|no\s+inbound|not\s+receiving\s+inbound|since\s+\d{1,2}(:\d{2})?\s*(am|pm)?|abandoned\s+rate|sev\d)\b/i;
+
+function buildEscalationRe(raw: string): RegExp {
+  // Raw regex mode: starts with '/' — e.g. /pattern/i or /pattern/
+  if (raw.startsWith('/')) {
+    const last    = raw.lastIndexOf('/');
+    const pattern = raw.slice(1, last);
+    const flags   = raw.slice(last + 1) || 'i';
+    try {
+      return new RegExp(pattern, flags);
+    } catch (err) {
+      console.warn(`[config] Invalid raw ESCALATION_KEYWORDS regex, using default: ${err}`);
+      return DEFAULT_ESCALATION_RE;
+    }
+  }
+  // Comma-separated terms: escape special chars, wrap each with \b
+  const terms = raw.split(',').map((t) => t.trim()).filter(Boolean);
+  if (terms.length === 0) return DEFAULT_ESCALATION_RE;
+  const escaped = terms.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  try {
+    return new RegExp(`\\b(${escaped.join('|')})\\b`, 'i');
+  } catch (err) {
+    console.warn(`[config] Invalid ESCALATION_KEYWORDS, using default: ${err}`);
+    return DEFAULT_ESCALATION_RE;
+  }
+}
 
 const ESCALATION_KEYWORD_RE: RegExp = (() => {
   const raw = (process.env.ESCALATION_KEYWORDS || '').trim();
-  if (!raw) return DEFAULT_ESCALATION_RE;
-  const parts = raw.split(',').map((k) => k.trim()).filter(Boolean);
-  if (parts.length === 0) return DEFAULT_ESCALATION_RE;
-  try {
-    return new RegExp(`(${parts.join('|')})`, 'i');
-  } catch (err) {
-    console.warn(`[config] Invalid ESCALATION_KEYWORDS, falling back to default: ${err}`);
-    return DEFAULT_ESCALATION_RE;
-  }
+  return raw ? buildEscalationRe(raw) : DEFAULT_ESCALATION_RE;
 })();
 
 // ---------------------------------------------------------------------------

@@ -379,6 +379,43 @@ app.message(async ({ message, client, body }) => {
 });
 
 // ---------------------------------------------------------------------------
+// reactions.add capability cache
+// Populated on first attempt — avoids noisy errors when reactions:write
+// scope is absent. To enable ✅ reactions, add reactions:write to your
+// Slack app's OAuth scopes.
+// ---------------------------------------------------------------------------
+let reactionsWriteAllowed: boolean | undefined;
+
+const REACTIONS_PERM_ERRORS = new Set([
+  'missing_scope', 'not_allowed_token_type',
+  'restricted_action', 'not_authed', 'invalid_auth',
+]);
+
+async function addCheckMark(client: WebClient, channel: string, timestamp: string): Promise<void> {
+  if (reactionsWriteAllowed === false) return; // permission absent — skip silently
+
+  try {
+    await client.reactions.add({ channel, timestamp, name: 'white_check_mark' });
+    reactionsWriteAllowed = true;
+  } catch (err: any) {
+    const code: string = err?.data?.error ?? '';
+
+    if (code === 'already_reacted') {
+      reactionsWriteAllowed = true;
+      return;
+    }
+    if (REACTIONS_PERM_ERRORS.has(code)) {
+      // Log once — future calls return early at the top before reaching here
+      console.info(`[reactions] reactions:write unavailable (${code}) — add the scope to enable ✅ reactions.`);
+      reactionsWriteAllowed = false;
+      return;
+    }
+    // Unexpected error — warn but don't cache; may be transient
+    console.warn(`[reactions] reactions.add failed (${code || String(err)})`);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Action: "✅ Resolved"
 // ---------------------------------------------------------------------------
 app.action<BlockAction>('resolved', async ({ ack, body, client }) => {
@@ -408,12 +445,8 @@ app.action<BlockAction>('resolved', async ({ ack, body, client }) => {
     resolvedNotified:  true,
   });
 
-  // Add ✅ reaction to the original root message
-  try {
-    await client.reactions.add({ channel, timestamp: rootTs, name: 'white_check_mark' });
-  } catch (err) {
-    console.error(`[resolved] reactions.add failed key=${metricsKey}:`, err);
-  }
+  // Add ✅ reaction to the original root message (skips silently if scope absent)
+  await addCheckMark(client, channel, rootTs);
 
   // Post confirmation in thread (once, guarded by resolvedNotified above)
   try {

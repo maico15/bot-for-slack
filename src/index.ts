@@ -23,52 +23,8 @@ if (ALLOWED_CHANNELS.length === 0) {
 
 const ESCALATION_USER_ID = process.env.ESCALATION_USER_ID!;
 
-// Keywords and reply templates are defined in config/intents.yml.
-// Keyword escalation applies ONLY when no intent matched (unknown messages).
-// Matched intents own their escalation flag exclusively — keywords are ignored.
-//
-// ESCALATION_KEYWORDS env override (optional):
-//   • Omitted / empty  → DEFAULT_ESCALATION_RE is used
-//   • Raw regex        → value must start with '/' e.g. /pattern/i
-//   • Comma-separated  → each term is regex-escaped and wrapped with \b...\b
-//                        e.g. "outage,sev1,no inbound"  (no raw regex chars needed)
-const DEFAULT_ESCALATION_RE =
-  /\b(outage|mass\s+issue|multiple\s+agents|many\s+agents|no\s+inbound|not\s+receiving\s+inbound|since\s+\d{1,2}(:\d{2})?\s*(am|pm)?|abandoned\s+rate|sev\d)\b/i;
-
-function buildEscalationRe(raw: string): RegExp {
-  // Raw regex mode: starts with '/' — e.g. /pattern/i or /pattern/
-  if (raw.startsWith('/')) {
-    const last    = raw.lastIndexOf('/');
-    const pattern = raw.slice(1, last);
-    const flags   = raw.slice(last + 1) || 'i';
-    try {
-      return new RegExp(pattern, flags);
-    } catch (err) {
-      console.warn(`[config] Invalid raw ESCALATION_KEYWORDS regex, using default: ${err}`);
-      return DEFAULT_ESCALATION_RE;
-    }
-  }
-  // Comma-separated terms: escape special chars, wrap each with \b
-  const terms = raw.split(',').map((t) => t.trim()).filter(Boolean);
-  if (terms.length === 0) return DEFAULT_ESCALATION_RE;
-  const escaped = terms.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-  try {
-    return new RegExp(`\\b(${escaped.join('|')})\\b`, 'i');
-  } catch (err) {
-    console.warn(`[config] Invalid ESCALATION_KEYWORDS, using default: ${err}`);
-    return DEFAULT_ESCALATION_RE;
-  }
-}
-
-const ESCALATION_KEYWORD_RE: RegExp = (() => {
-  const raw = (process.env.ESCALATION_KEYWORDS || '').trim();
-  return raw ? buildEscalationRe(raw) : DEFAULT_ESCALATION_RE;
-})();
-
-// FORCE_ESCALATION_OVERRIDE=true: "mass issue" or "outage" in the text escalates
-// even when a matched intent has escalation:false. Default OFF.
-const FORCE_ESCALATION_OVERRIDE = process.env.FORCE_ESCALATION_OVERRIDE === 'true';
-const FORCE_OVERRIDE_RE          = /\b(mass\s+issue|outage)\b/i;
+// ESCALATION_USER_ID receives a DM when a user clicks "Still not working".
+// No automatic escalation occurs — all escalation is button-driven.
 
 // ---------------------------------------------------------------------------
 // Receiver + App
@@ -87,7 +43,7 @@ receiver.router.get('/', (_req, res) => res.send('ok'));
 // ---------------------------------------------------------------------------
 // Message handler
 // Order: bot filter → thread-reply filter → channel → event_id dedup
-//        → root dedup → user cooldown → classify → reply → metrics → escalation
+//        → root dedup → user cooldown → classify → reply → metrics
 // ---------------------------------------------------------------------------
 app.message(async ({ message, client, body }) => {
   const msg     = message as any;
@@ -162,9 +118,9 @@ app.message(async ({ message, client, body }) => {
           elements: [
             {
               type:      'button',
-              text:      { type: 'plain_text', text: 'It works in Incognito' },
+              text:      { type: 'plain_text', text: '✅ Resolved' },
               style:     'primary',
-              action_id: 'works_in_incognito',
+              action_id: 'resolved',
               value:     buttonValue,
             },
             {
@@ -200,58 +156,12 @@ app.message(async ({ message, client, body }) => {
     updatedAt: Date.now(),
   });
 
-  // 10. Escalation DM
-  // Base rule: matched intent owns its flag; unmatched falls back to keyword regex.
-  // Override (opt-in via FORCE_ESCALATION_OVERRIDE=true): if the text contains
-  // "mass issue" or "outage", escalate regardless of intent.escalation.
-  const intentMatched   = intent !== null;
-  const needsEscalation = intentMatched
-    ? Boolean(intent!.escalation) || (FORCE_ESCALATION_OVERRIDE && FORCE_OVERRIDE_RE.test(text))
-    : ESCALATION_KEYWORD_RE.test(text);
-
-  if (!needsEscalation) return;
-
-  const entry = metrics.get(metricsKey);
-  if (entry?.escalated) {
-    console.log(`[msg] skip escalation DM: already escalated root=${metricsKey}`);
-    return;
-  }
-
-  // Mark before sending to prevent double-send on concurrent retries
-  if (entry) { entry.escalated = true; entry.updatedAt = Date.now(); }
-
-  let permalink = `https://slack.com/archives/${msg.channel}/p${rootTs.replace('.', '')}`;
-  try {
-    const pl = await client.chat.getPermalink({ channel: msg.channel, message_ts: rootTs });
-    if (pl.permalink) permalink = pl.permalink as string;
-  } catch (err) {
-    console.error(`[msg] error fetching permalink root=${metricsKey}:`, err);
-  }
-
-  const truncated = text.length > 1000 ? `${text.slice(0, 997)}\u2026` : text;
-  const dmLines = [
-    '*Auto-Escalation*',
-    `• *Intent:* ${intentId}`,
-    `• *Reporter:* <@${msg.user}>`,
-    `• *Channel:* <#${msg.channel}>`,
-    `• *Permalink:* ${permalink}`,
-    `• *Message:* ${truncated}`,
-    `• *Bot replied:* ${replyTemplate}`,
-  ];
-
-  try {
-    const { channel: dm } = await client.conversations.open({ users: ESCALATION_USER_ID });
-    await client.chat.postMessage({ channel: dm!.id!, text: dmLines.join('\n') });
-    console.log(`[msg] escalation DM sent intent=${intentId} root=${metricsKey}`);
-  } catch (err) {
-    console.error(`[msg] error sending escalation DM root=${metricsKey}:`, err);
-  }
 });
 
 // ---------------------------------------------------------------------------
-// Action: "It works in Incognito"
+// Action: "✅ Resolved"
 // ---------------------------------------------------------------------------
-app.action<BlockAction>('works_in_incognito', async ({ ack, body, client }) => {
+app.action<BlockAction>('resolved', async ({ ack, body, client }) => {
   await ack();
 
   const action = body.actions[0] as ButtonAction;
@@ -261,18 +171,22 @@ app.action<BlockAction>('works_in_incognito', async ({ ack, body, client }) => {
   };
   if (!parsed.channel || !parsed.thread_ts) return;
 
-  const result = await client.chat.postMessage({
+  const metricsKey = `${parsed.channel}:${parsed.thread_ts}`;
+  const entry      = metrics.get(metricsKey);
+  if (entry) {
+    entry.status    = 'solved';
+    entry.updatedAt = Date.now();
+  }
+
+  await client.chat.postMessage({
     channel:   parsed.channel,
     thread_ts: parsed.thread_ts,
-    text: 'Resolved. The issue was likely caused by a browser extension or cached data. If it recurs, Incognito mode or clearing your cache should fix it.',
+    text:      'Glad it is resolved! ✅',
   });
-  if (result.ts) {
-    botMsgToThread.set(result.ts, { metricsKey: `${parsed.channel}:${parsed.thread_ts}` });
-  }
 });
 
 // ---------------------------------------------------------------------------
-// Action: "Still not working"
+// Action: "Still not working" — asks for diagnostics + sends escalation DM
 // ---------------------------------------------------------------------------
 app.action<BlockAction>('still_not_working', async ({ ack, body, client }) => {
   await ack();
@@ -284,28 +198,83 @@ app.action<BlockAction>('still_not_working', async ({ ack, body, client }) => {
   };
   if (!parsed.channel || !parsed.thread_ts) return;
 
-  const result = await client.chat.postMessage({
+  const metricsKey = `${parsed.channel}:${parsed.thread_ts}`;
+  const entry      = metrics.get(metricsKey);
+
+  // Idempotent — only escalate once
+  if (entry?.escalated) {
+    console.log(`[action] skip: already escalated metricsKey=${metricsKey}`);
+    return;
+  }
+
+  // Mark immediately to prevent concurrent double-sends
+  if (entry) {
+    entry.status      = 'escalated';
+    entry.escalated   = true;
+    entry.escalatedAt = Date.now();
+    entry.updatedAt   = Date.now();
+  }
+
+  // 1. Post diagnostics prompt in thread
+  const diagResult = await client.chat.postMessage({
     channel:   parsed.channel,
     thread_ts: parsed.thread_ts,
-    text: 'Please share these details so we can investigate.',
+    text:      'I have alerted the team. While they investigate, please reply with:',
     blocks: [
       {
         type: 'section',
         text: {
           type: 'mrkdwn',
           text: [
-            'To investigate further, please reply with:',
+            'I have alerted the team. While they investigate, please reply with:',
             '',
-            '1. *Browser* — Chrome / Firefox / Edge / Safari',
-            '2. *What is not working?* — Booking / Leads / SMS / Queue / Calls / Other',
-            '3. *Multiple agents affected?* — Yes / No',
+            '• *Browser + version:*',
+            '• *Incognito tried:* Y / N',
+            '• *Extensions disabled:* Y / N',
+            '• *Error text or screenshot:*',
+            '• *When did it start + how many agents affected:*',
           ].join('\n'),
         },
       },
     ],
   });
-  if (result.ts) {
-    botMsgToThread.set(result.ts, { metricsKey: `${parsed.channel}:${parsed.thread_ts}` });
+  if (diagResult.ts) {
+    botMsgToThread.set(diagResult.ts, { metricsKey });
+  }
+
+  // 2. Send escalation DM to owner
+  const rootTs = parsed.thread_ts;
+  let permalink = `https://slack.com/archives/${parsed.channel}/p${rootTs.replace('.', '')}`;
+  try {
+    const pl = await client.chat.getPermalink({ channel: parsed.channel, message_ts: rootTs });
+    if (pl.permalink) permalink = pl.permalink as string;
+  } catch (err) {
+    console.error(`[action] error fetching permalink metricsKey=${metricsKey}:`, err);
+  }
+
+  const ctx       = threadContexts.get(metricsKey);
+  const intentId  = ctx?.intentId ?? entry?.intentId ?? 'unknown';
+  const userText  = ctx?.userText ?? '';
+  const truncated = userText.length > 500 ? `${userText.slice(0, 497)}\u2026` : userText;
+
+  const dmLines = [
+    '*Escalation — "Still not working" button*',
+    `• *Intent:* ${intentId}`,
+    `• *Reporter:* <@${ctx?.userId ?? 'unknown'}>`,
+    `• *Channel:* <#${parsed.channel}>`,
+    `• *Permalink:* ${permalink}`,
+    `• *Original message:* ${truncated}`,
+    `• *Bot replied:* ${ctx?.botReplyText ?? '(unknown)'}`,
+    '',
+    'Please check the thread — the user has been asked for diagnostics.',
+  ];
+
+  try {
+    const { channel: dm } = await client.conversations.open({ users: ESCALATION_USER_ID });
+    await client.chat.postMessage({ channel: dm!.id!, text: dmLines.join('\n') });
+    console.log(`[action] escalation DM sent metricsKey=${metricsKey}`);
+  } catch (err) {
+    console.error(`[action] error sending escalation DM metricsKey=${metricsKey}:`, err);
   }
 });
 
@@ -313,11 +282,9 @@ app.action<BlockAction>('still_not_working', async ({ ack, body, client }) => {
 // Reaction tracking
 // ✅ white_check_mark → set status 'solved'
 // ❌ x               → set status 'unsolved'
-// 🧵 thread          → escalation DM to ESCALATION_USER_ID (once per root)
-// Missing metrics entry is created with intentId 'unknown', status 'open'.
 // ---------------------------------------------------------------------------
-app.event('reaction_added', async ({ event, client }) => {
-  const { reaction, user } = event;
+app.event('reaction_added', async ({ event }) => {
+  const { reaction } = event;
   const item = event.item;
   if (item.type !== 'message') return;
 
@@ -326,127 +293,17 @@ app.event('reaction_added', async ({ event, client }) => {
 
   if (!ALLOWED_CHANNELS.includes(channel)) return;
 
-  // Resolve to the root message via botMsgToThread; fall back to itemTs itself
   const metricsKey: string = botMsgToThread.get(itemTs)?.metricsKey ?? `${channel}:${itemTs}`;
-  const rootTs: string     = metricsKey.slice(metricsKey.indexOf(':') + 1);
-
-  // Get or create metrics entry (reaction may arrive on a message the bot never saw)
-  let entry = metrics.get(metricsKey);
-  if (!entry) {
-    entry = { intentId: 'unknown', status: 'open', createdAt: Date.now(), updatedAt: Date.now() };
-    metrics.set(metricsKey, entry);
-  }
+  const entry = metrics.get(metricsKey);
+  if (!entry) return;
 
   if (reaction === 'white_check_mark') {
     entry.status    = 'solved';
     entry.updatedAt = Date.now();
-    return;
-  }
-
-  if (reaction === 'x') {
+  } else if (reaction === 'x') {
     entry.status    = 'unsolved';
     entry.updatedAt = Date.now();
-    return;
   }
-
-  if (reaction !== 'thread') return;
-
-  // 🧵 manual escalation — once per root message (unified flag with auto-escalation)
-  if (entry.escalated) return;
-  entry.escalated = true;
-  entry.updatedAt = Date.now();
-
-  let permalink = `https://slack.com/archives/${channel}/p${rootTs.replace('.', '')}`;
-  try {
-    const pl = await client.chat.getPermalink({ channel, message_ts: rootTs });
-    if (pl.permalink) permalink = pl.permalink as string;
-  } catch (err) {
-    console.error(`[reaction] error fetching permalink metricsKey=${metricsKey}:`, err);
-  }
-
-  const ctx = threadContexts.get(metricsKey);
-  const lines = [
-    '*Manual Escalation (🧵 reaction)*',
-    `• *Escalated by:* <@${user}>`,
-    `• *Channel:* <#${channel}>`,
-    `• *Permalink:* ${permalink}`,
-    `• *Intent:* ${entry.intentId}`,
-  ];
-  if (ctx) {
-    lines.push(`• *Reporter:* <@${ctx.userId}>`);
-    lines.push(`• *Original message:* ${ctx.userText}`);
-    lines.push(`• *Bot replied:* ${ctx.botReplyText}`);
-  }
-
-  try {
-    const { channel: dm } = await client.conversations.open({ users: ESCALATION_USER_ID });
-    await client.chat.postMessage({ channel: dm!.id!, text: lines.join('\n') });
-    console.log(`[reaction] escalation DM sent metricsKey=${metricsKey}`);
-  } catch (err) {
-    console.error(`[reaction] error sending escalation DM metricsKey=${metricsKey}:`, err);
-  }
-});
-
-// ---------------------------------------------------------------------------
-// /flex escalate — manual escalation command
-// ---------------------------------------------------------------------------
-app.command('/flex', async ({ ack, command, client }) => {
-  await ack();
-
-  if (command.text.trim().toLowerCase() !== 'escalate') {
-    await client.chat.postEphemeral({
-      channel: command.channel_id,
-      user:    command.user_id,
-      text:    'Unknown subcommand. Usage: `/flex escalate`',
-    });
-    return;
-  }
-
-  const { channel_id, user_id, user_name } = command;
-  const rawThreadTs: string | undefined = (command as any).thread_ts;
-
-  // Prefer real permalink from API; fall back to constructed URL
-  let permalink = rawThreadTs
-    ? `https://slack.com/archives/${channel_id}/p${rawThreadTs.replace('.', '')}`
-    : `https://slack.com/archives/${channel_id}`;
-  if (rawThreadTs) {
-    try {
-      const pl = await client.chat.getPermalink({
-        channel:    channel_id,
-        message_ts: rawThreadTs,
-      });
-      if (pl.permalink) permalink = pl.permalink as string;
-    } catch { /* non-fatal */ }
-  }
-
-  const metricsKey = rawThreadTs ? `${channel_id}:${rawThreadTs}` : undefined;
-  const ctx = metricsKey ? threadContexts.get(metricsKey) : undefined;
-
-  if (metricsKey) {
-    const entry = metrics.get(metricsKey);
-    if (entry) { entry.escalated = true; entry.updatedAt = Date.now(); }
-  }
-
-  const lines = [
-    '*Escalation Request*',
-    `• *Reporter:* <@${user_id}> (${user_name})`,
-    `• *Channel:* <#${channel_id}>`,
-    `• *Timestamp:* ${new Date().toISOString()}`,
-    `• *Permalink:* ${permalink}`,
-  ];
-  if (ctx) {
-    lines.push(`• *Intent:* ${ctx.intentId}`);
-    lines.push(`• *Original message:* ${ctx.userText}`);
-    lines.push(`• *Bot replied:* ${ctx.botReplyText}`);
-  }
-
-  const { channel: dm } = await client.conversations.open({ users: ESCALATION_USER_ID });
-  await client.chat.postMessage({ channel: dm!.id!, text: lines.join('\n') });
-
-  await client.chat.postMessage({
-    channel: channel_id,
-    text: 'Escalated to System Owner.',
-  });
 });
 
 // ---------------------------------------------------------------------------

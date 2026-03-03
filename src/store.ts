@@ -58,11 +58,10 @@ export class TTLMap<K, V> {
 // TTL constants (ms)
 // ---------------------------------------------------------------------------
 export const TTL = {
-  EVENT_ID:   30 * 60 * 1000,           // 30 min  – Slack event dedup
-  THREAD:     24 * 60 * 60 * 1000,      // 24 h    – one bot reply per thread
-  COOLDOWN:   90 * 1000,                // 90 s    – per-user spam guard
-  ESCALATION: 7 * 24 * 60 * 60 * 1000, // 7 days  – 🧵 reaction dedup
-  STATS:      7 * 24 * 60 * 60 * 1000, // 7 days  – metrics retention
+  EVENT_ID:  30 * 60 * 1000,           // 30 min  – Slack event dedup
+  THREAD:    24 * 60 * 60 * 1000,      // 24 h    – one bot reply per thread
+  COOLDOWN:  90 * 1000,                // 90 s    – per-user spam guard
+  STATS:     7 * 24 * 60 * 60 * 1000, // 7 days  – metrics retention
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -81,16 +80,14 @@ export const userCooldown = new TTLMap<string, true>(TTL.COOLDOWN);
 
 /** Thread metrics — key = `${channelId}:${rootTs}` (7 days) */
 export interface MetricEntry {
-  intentId: string;
-  status: 'open' | 'solved' | 'unsolved';
-  createdAt: number;
-  updatedAt: number;
-  escalated?: boolean;
+  intentId:     string;
+  status:       'open' | 'solved' | 'unsolved' | 'escalated';
+  createdAt:    number;
+  updatedAt:    number;
+  escalated?:   boolean;   // true once "Still not working" button sends the DM
+  escalatedAt?: number;
 }
 export const metrics = new TTLMap<string, MetricEntry>(TTL.STATS);
-
-/** 🧵 reaction escalation dedup — key = `${channelId}:${rootTs}` (7 days) */
-export const reactionEscalated = new TTLMap<string, true>(TTL.ESCALATION);
 
 /** Thread context for escalation DMs — key = `${channelId}:${rootTs}` (24 h) */
 export interface ThreadContext {
@@ -113,7 +110,6 @@ export function startCleanup(): NodeJS.Timeout {
     handledRoots.cleanup();
     userCooldown.cleanup();
     metrics.cleanup();
-    reactionEscalated.cleanup();
     threadContexts.cleanup();
     botMsgToThread.cleanup();
   }, 60_000);
@@ -129,6 +125,7 @@ export function computeStats(): string {
 
   const solved      = entries.filter((e) => e.status === 'solved').length;
   const unsolved    = entries.filter((e) => e.status === 'unsolved').length;
+  const escalated   = entries.filter((e) => e.status === 'escalated').length;
   const unknown     = entries.filter((e) => e.intentId === 'unknown').length;
   const unknownRate = ((unknown / total) * 100).toFixed(1);
 
@@ -143,7 +140,7 @@ export function computeStats(): string {
 
   return [
     '*System Assistant — Stats (last 7 days)*',
-    `*Total:* ${total}  |  *Solved ✅:* ${solved}  |  *Unsolved ❌:* ${unsolved}`,
+    `*Total:* ${total}  |  *Solved ✅:* ${solved}  |  *Unsolved ❌:* ${unsolved}  |  *Escalated 🔴:* ${escalated}`,
     `*Unknown:* ${unknown} (${unknownRate}%)`,
     '',
     '*Top intents:*',

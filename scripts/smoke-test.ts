@@ -1,66 +1,44 @@
 /**
- * Escalation + classification smoke tests.
+ * Classification smoke tests.
+ * Escalation is button-driven only — no auto-escalation logic to test here.
  * Run: npx ts-node scripts/smoke-test.ts
  */
 import { classify } from '../src/intents';
 
-// Must mirror DEFAULT_ESCALATION_RE and FORCE_OVERRIDE_RE in src/index.ts exactly.
-const KEYWORD_RE =
-  /\b(outage|mass\s+issue|multiple\s+agents|many\s+agents|no\s+inbound|not\s+receiving\s+inbound|since\s+\d{1,2}(:\d{2})?\s*(am|pm)?|abandoned\s+rate|sev\d)\b/i;
-const FORCE_OVERRIDE_RE = /\b(mass\s+issue|outage)\b/i;
-
-function shouldEscalate(text: string, forceOverride = false): boolean {
-  const intent = classify(text);
-  if (intent !== null) {
-    return Boolean(intent.escalation) || (forceOverride && FORCE_OVERRIDE_RE.test(text));
-  }
-  return KEYWORD_RE.test(text);
-}
-
 const cases: Array<{
-  label:             string;
-  text:              string;
-  forceOverride?:    boolean;
-  expectIntentId:    string | null;
-  expectEscalation:  boolean;
+  label:           string;
+  text:            string;
+  expectIntentId:  string | null;
 }> = [
   {
-    label:            'known intent escalation:false — no escalation despite noisy text',
-    text:             'not working white screen',
-    expectIntentId:   'white_screen_refresh',
-    expectEscalation: false,
+    label:          'twilio misspelling → outbound_call_error',
+    text:           "I can't open my twillio",
+    expectIntentId: 'outbound_call_error',
   },
   {
-    label:            'known intent escalation:true — escalates',
-    text:             'no inbound calls since 5am multiple agents',
-    expectIntentId:   'inbound_missing',
-    expectEscalation: true,
+    label:          'white screen → white_screen_refresh',
+    text:           'white screen when entering location',
+    expectIntentId: 'white_screen_refresh',
   },
   {
-    label:            'unknown intent + keyword match — keyword escalation fires',
-    text:             'outage multiple agents',
-    expectIntentId:   null,
-    expectEscalation: true,
+    label:          'packet loss → packet_loss',
+    text:           'choppy audio on all calls today',
+    expectIntentId: 'packet_loss',
   },
   {
-    label:            'unknown intent, no keyword match — no escalation',
-    text:             'hello can you help me',
-    expectIntentId:   null,
-    expectEscalation: false,
+    label:          'error 45301 → agent_not_eligible_45301',
+    text:           'getting error 45301 agent not eligible',
+    expectIntentId: 'agent_not_eligible_45301',
   },
   {
-    label:            'FORCE_ESCALATION_OVERRIDE=false — "mass issue" does NOT override intent.escalation:false',
-    text:             'white screen mass issue',
-    forceOverride:    false,
-    expectIntentId:   'white_screen_refresh',
-    expectEscalation: false,
+    label:          'no inbound → inbound_missing',
+    text:           'no inbound calls since 5am multiple agents',
+    expectIntentId: 'inbound_missing',
   },
   {
-    label:            'FORCE_ESCALATION_OVERRIDE=true — "mass issue" forces escalation despite intent.escalation:false',
-    text:             'white screen mass issue',
-    forceOverride:    true,
-    expectIntentId:   'white_screen_refresh',
-    expectEscalation: true,
+    label:          'unrecognised message → null (FALLBACK_REPLY)',
+    text:           'hello can you help me',
+    expectIntentId: null,
   },
 ];
 
@@ -68,16 +46,12 @@ let passed = 0;
 let failed = 0;
 
 for (const c of cases) {
-  const intent      = classify(c.text);
-  const intentId    = intent?.id ?? null;
-  const escalation  = shouldEscalate(c.text, c.forceOverride);
-  const intentOk    = intentId === c.expectIntentId;
-  const escalOk     = escalation === c.expectEscalation;
-  const ok          = intentOk && escalOk;
+  const intent   = classify(c.text);
+  const intentId = intent?.id ?? null;
+  const ok       = intentId === c.expectIntentId;
 
   console.log(`${ok ? '✓' : '✗'} ${c.label}`);
-  if (!intentOk)  console.log(`    intent:     got=${intentId ?? 'null'} want=${c.expectIntentId ?? 'null'}`);
-  if (!escalOk)   console.log(`    escalation: got=${escalation}  want=${c.expectEscalation}`);
+  if (!ok) console.log(`    got=${intentId ?? 'null'}  want=${c.expectIntentId ?? 'null'}`);
   ok ? passed++ : failed++;
 }
 

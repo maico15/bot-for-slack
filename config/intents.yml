@@ -1,0 +1,226 @@
+# ---------------------------------------------------------------------------
+# Intent definitions for System Assistant
+#
+# Fields:
+#   id             – unique identifier (used in metrics / stats)
+#   priority       – lower number = matched first
+#   patterns       – JavaScript RegExp strings, case-insensitive (flag: i)
+#                    Use single-quoted YAML strings so \b is a literal backslash
+#                    (regex word boundary), not a YAML escape.
+#   reply_template – English-only Slack mrkdwn text shown in the thread reply.
+#                    Uses YAML literal block (|-) to preserve newlines and
+#                    bullet formatting.
+#   escalation     – if true, an escalation DM is sent to ESCALATION_USER_ID
+# ---------------------------------------------------------------------------
+
+intents:
+
+  - id: audio_permission_denied
+    priority: 60
+    patterns:
+      - 'microphone.*permission'
+      - 'audio.*permission'
+      - 'permission.*denied'
+      - 'mic.*denied'
+      - 'mic.*blocked'
+      - 'microphone.*blocked'
+      - '\bno microphone\b'
+    reply_template: |-
+      *Microphone / Audio Permission Denied*
+      Try these steps:
+      1. Click the *lock icon* in the address bar → set Microphone to *Allow*
+      2. Refresh the page after granting permission
+      3. If blocked by browser policy, check `chrome://settings/content/microphone`
+
+      Please reply with:
+      • *Browser + version:*
+      • *Incognito tried:* Y / N
+      • *Extensions disabled:* Y / N
+      • *Error text or screenshot:*
+      • *When did it start + how many agents affected:*
+    escalation: false
+
+  - id: attempting_reconnect
+    priority: 65
+    patterns:
+      - 'attempting.*reconnect'
+      - '\breconnecting\b'
+      - 'connection.*lost'
+      - 'keeps.*disconnect'
+      - 'keeps.*drop'
+      - '\bdisconnecting\b'
+    reply_template: |-
+      *Attempting Reconnect / Keeps Disconnecting*
+      Try these steps:
+      1. Check network stability — switch to a *wired connection* if on Wi-Fi
+      2. Refresh Flex (do not close the tab mid-call)
+      3. Open in Incognito (`Ctrl+Shift+N`) to rule out extension interference
+
+      Please reply with:
+      • *Browser + version:*
+      • *Incognito tried:* Y / N
+      • *Extensions disabled:* Y / N
+      • *Error text or screenshot:*
+      • *When did it start + how many agents affected:*
+    escalation: false
+
+  - id: packet_loss
+    priority: 70
+    patterns:
+      - 'packet loss'
+      - '\bjitter\b'
+      - '\blatency\b'
+      - '\bchoppy\b'
+      - 'poor audio'
+      - 'audio.*quality'
+      - '\bcrackling\b'
+      - 'static.*call'
+      - 'call.*static'
+    reply_template: |-
+      *Audio / Network Quality Issue*
+      Try these steps:
+      1. Run the *Twilio Network Test* and note the results
+      2. Switch to a *wired connection* if on Wi-Fi
+      3. Close any bandwidth-heavy apps or browser tabs
+      4. Refresh Flex in Incognito and retest audio
+
+      Please reply with:
+      • *Browser + version:*
+      • *Incognito tried:* Y / N
+      • *Extensions disabled:* Y / N
+      • *Error text or screenshot:*
+      • *When did it start + how many agents affected:*
+      • *Twilio Network Test — Latency (ms):*  Jitter (ms):*  Packet loss (%):*
+    escalation: false
+
+  - id: agent_not_eligible_45301
+    priority: 75
+    patterns:
+      - '45301'
+      - 'not eligible'
+      - 'agent.*eligib'
+      - 'eligib.*error'
+    reply_template: |-
+      *Error 45301 — Agent Not Eligible*
+      Try these steps:
+      1. Log out of Flex completely, wait 10 seconds, then log back in
+      2. Confirm agent status is set to *Available* (not Offline or Busy)
+      3. Open in Incognito and retry
+
+      Please reply with:
+      • *Browser + version:*
+      • *Incognito tried:* Y / N
+      • *Extensions disabled:* Y / N
+      • *Error text or screenshot:*
+      • *When did it start + how many agents affected:*
+      • *Agent status at the time of the error:*
+      • *Skills / queues assigned to the affected agent(s):*
+    escalation: false
+
+  - id: outbound_call_error
+    priority: 80
+    patterns:
+      - 'outbound.*call'
+      - 'outbound.*error'
+      - "can't.*call"
+      - 'cannot.*call'
+      - 'call.*not.*connect'
+      - 'call.*fail'
+      - 'placing.*call'
+      - 'dial.*error'
+      - 'twilli?o'
+    reply_template: |-
+      *Outbound Call Error*
+      Try these steps:
+      1. Refresh the page and retry the call
+      2. Open in Incognito (`Ctrl+Shift+N`) to rule out extension conflicts
+      3. Confirm microphone access is allowed in browser settings
+
+      Please reply with:
+      • *Browser + version:*
+      • *Incognito tried:* Y / N
+      • *Extensions disabled:* Y / N
+      • *Error text or screenshot:*
+      • *When did it start + how many agents affected:*
+    escalation: false
+
+  - id: ringing_not_visible
+    priority: 85
+    patterns:
+      - 'ringing.*not.*visible'
+      - 'ring.*not.*show'
+      - 'call.*not.*appear'
+      - 'call.*not.*ring'
+      - 'not.*see.*ring'
+      - 'incoming.*not.*show'
+      - 'call.*not.*visible'
+    reply_template: |-
+      *Incoming Call Not Visible / Not Ringing*
+      Try these steps:
+      1. Confirm Flex tab is open and your status is set to *Available*
+      2. Check browser notification permissions for the Flex URL
+      3. Refresh Flex and wait for a test inbound call
+      4. Open in Incognito and retest
+
+      Please reply with:
+      • *Browser + version:*
+      • *Incognito tried:* Y / N
+      • *Extensions disabled:* Y / N
+      • *Error text or screenshot:*
+      • *When did it start + how many agents affected:*
+    escalation: true
+
+  - id: white_screen_refresh
+    priority: 90
+    patterns:
+      - 'white screen'
+      - 'blank screen'
+      - 'blank page'
+      - '\bblank\b'
+      - '\bfrozen\b'
+      - 'page.*not.*load'
+      - 'stuck.*load'
+      - 'loading.*forever'
+      - '\bloading\b'
+    reply_template: |-
+      *White Screen / Page Not Loading*
+      Try these steps:
+      1. *Hard refresh:* `Ctrl+Shift+R` (Windows) / `Cmd+Shift+R` (Mac)
+      2. Open in *Incognito* (`Ctrl+Shift+N`) — if it loads there, a browser extension is the likely cause
+      3. Disable extensions one by one to identify the culprit
+      4. Clear browser cache if Incognito resolves it
+
+      Please reply with:
+      • *Browser + version:*
+      • *Incognito tried:* Y / N
+      • *Extensions disabled:* Y / N
+      • *Error text or screenshot:*
+      • *When did it start + how many agents affected:*
+    escalation: false
+
+  - id: inbound_missing
+    priority: 95
+    patterns:
+      - 'inbound.*not'
+      - 'not.*inbound'
+      - 'not receiving.*call'
+      - 'no inbound'
+      - 'missing.*call'
+      - 'calls.*not.*coming'
+      - 'not receiving inbound'
+      - 'abandoned rate'
+    reply_template: |-
+      *Inbound Calls Not Arriving*
+      Try these steps:
+      1. Confirm agent status is *Available* in Flex
+      2. Refresh Flex and check the connection indicator
+      3. Open in Incognito to rule out extension / cache issues
+      4. Verify no active queue overflow or routing rule change
+
+      Please reply with:
+      • *Browser + version:*
+      • *Incognito tried:* Y / N
+      • *Extensions disabled:* Y / N
+      • *Error text or screenshot:*
+      • *When did it start + how many agents affected:*
+    escalation: true

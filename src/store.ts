@@ -107,6 +107,10 @@ export interface MetricEntry {
   // escalation
   escalated?:    boolean;
   escalatedAt?:  number;
+  // resolution
+  botReplyTs?:       string;
+  solvedAt?:         number;
+  resolvedNotified?: boolean;
 }
 export const metrics = new TTLMap<string, MetricEntry>(TTL.STATS);
 

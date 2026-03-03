@@ -373,6 +373,7 @@ app.message(async ({ message, client, body }) => {
     channelId:   msg.channel,
     rootTs,
     originalText: text,
+    botReplyTs:  botMsgTs,
   });
 
 });
@@ -390,18 +391,60 @@ app.action<BlockAction>('resolved', async ({ ack, body, client }) => {
   };
   if (!parsed.channel || !parsed.thread_ts) return;
 
-  const metricsKey = `${parsed.channel}:${parsed.thread_ts}`;
+  const { channel, thread_ts: rootTs } = parsed;
+  const metricsKey = `${channel}:${rootTs}`;
   const entry      = metrics.get(metricsKey);
-  if (entry) {
-    entry.status    = 'solved';
-    entry.updatedAt = Date.now();
+
+  // Idempotent — only act once
+  if (entry?.resolvedNotified) {
+    console.log(`[resolved] skip: already resolved key=${metricsKey}`);
+    return;
   }
 
-  await client.chat.postMessage({
-    channel:   parsed.channel,
-    thread_ts: parsed.thread_ts,
-    text:      'Glad it is resolved! ✅',
+  // Update state atomically before async work
+  upsertMetric(metricsKey, {
+    status:            'solved',
+    solvedAt:          Date.now(),
+    resolvedNotified:  true,
   });
+
+  // Add ✅ reaction to the original root message
+  try {
+    await client.reactions.add({ channel, timestamp: rootTs, name: 'white_check_mark' });
+  } catch (err) {
+    console.error(`[resolved] reactions.add failed key=${metricsKey}:`, err);
+  }
+
+  // Post confirmation in thread (once, guarded by resolvedNotified above)
+  try {
+    await client.chat.postMessage({
+      channel,
+      thread_ts: rootTs,
+      text:      'Great — marking this as resolved ✅',
+    });
+  } catch (err) {
+    console.error(`[resolved] thread post failed key=${metricsKey}:`, err);
+  }
+
+  // Replace the bot's initial reply buttons with a "Status: Resolved ✅" context block
+  const updated    = metrics.get(metricsKey);
+  const ctx        = threadContexts.get(metricsKey);
+  const replyText  = ctx?.botReplyText ?? 'Your issue has been reviewed.';
+  if (updated?.botReplyTs) {
+    try {
+      await client.chat.update({
+        channel,
+        ts:     updated.botReplyTs,
+        text:   replyText,
+        blocks: [
+          { type: 'section', text: { type: 'mrkdwn', text: replyText } },
+          { type: 'context', elements: [{ type: 'mrkdwn', text: 'Status: Resolved ✅' }] },
+        ],
+      });
+    } catch (err) {
+      console.error(`[resolved] chat.update failed key=${metricsKey}:`, err);
+    }
+  }
 });
 
 // ---------------------------------------------------------------------------

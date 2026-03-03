@@ -27,7 +27,10 @@ const ESCALATION_USER_ID = process.env.ESCALATION_USER_ID!;
 // ESCALATION_KEYWORDS: optional comma-separated regex parts that trigger an
 // escalation DM independently of the intent's own escalation flag.
 // Falls back to DEFAULT_ESCALATION_RE when the env var is not set.
-const DEFAULT_ESCALATION_RE = /mass issue|outage|multiple agents|many agents|since\s+\d|abandoned rate|sev\d|urgent|down|not receiving inbound/i;
+// Keyword escalation fires ONLY when no intent matched (unknown).
+// Matched intents with escalation:false are never escalated, even if keywords appear in the text.
+// \b guards on 'urgent' and 'down' prevent false matches (e.g. "urgently", "download").
+const DEFAULT_ESCALATION_RE = /mass issue|outage|multiple agents|many agents|since\s+\d|abandoned rate|sev\d|\burgent\b|\bdown\b|not receiving inbound/i;
 
 const ESCALATION_KEYWORD_RE: RegExp = (() => {
   const raw = (process.env.ESCALATION_KEYWORDS || '').trim();
@@ -173,11 +176,14 @@ app.message(async ({ message, client, body }) => {
   });
 
   // 10. Escalation DM
-  // Trigger A: intent declares escalation: true
-  // Trigger B: text matches ESCALATION_KEYWORD_RE from env
-  const needsEscalation =
-    (intent?.escalation === true) ||
-    ESCALATION_KEYWORD_RE.test(text);
+  // Rule: if an intent matched, honour its escalation flag exclusively.
+  //       If no intent matched, fall back to keyword regex.
+  //       This prevents a known intent with escalation:false from being
+  //       escalated just because the message contains a generic keyword.
+  const intentMatched  = intent !== null;
+  const needsEscalation = intentMatched
+    ? Boolean(intent!.escalation)
+    : ESCALATION_KEYWORD_RE.test(text);
 
   if (!needsEscalation) return;
 

@@ -65,6 +65,11 @@ const ESCALATION_KEYWORD_RE: RegExp = (() => {
   return raw ? buildEscalationRe(raw) : DEFAULT_ESCALATION_RE;
 })();
 
+// FORCE_ESCALATION_OVERRIDE=true: "mass issue" or "outage" in the text escalates
+// even when a matched intent has escalation:false. Default OFF.
+const FORCE_ESCALATION_OVERRIDE = process.env.FORCE_ESCALATION_OVERRIDE === 'true';
+const FORCE_OVERRIDE_RE          = /\b(mass\s+issue|outage)\b/i;
+
 // ---------------------------------------------------------------------------
 // Receiver + App
 // ---------------------------------------------------------------------------
@@ -196,13 +201,12 @@ app.message(async ({ message, client, body }) => {
   });
 
   // 10. Escalation DM
-  // Rule: if an intent matched, honour its escalation flag exclusively.
-  //       If no intent matched, fall back to keyword regex.
-  //       This prevents a known intent with escalation:false from being
-  //       escalated just because the message contains a generic keyword.
-  const intentMatched  = intent !== null;
+  // Base rule: matched intent owns its flag; unmatched falls back to keyword regex.
+  // Override (opt-in via FORCE_ESCALATION_OVERRIDE=true): if the text contains
+  // "mass issue" or "outage", escalate regardless of intent.escalation.
+  const intentMatched   = intent !== null;
   const needsEscalation = intentMatched
-    ? Boolean(intent!.escalation)
+    ? Boolean(intent!.escalation) || (FORCE_ESCALATION_OVERRIDE && FORCE_OVERRIDE_RE.test(text))
     : ESCALATION_KEYWORD_RE.test(text);
 
   if (!needsEscalation) return;

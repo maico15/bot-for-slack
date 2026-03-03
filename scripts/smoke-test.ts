@@ -4,18 +4,23 @@
  */
 import { classify } from '../src/intents';
 
-// Must mirror DEFAULT_ESCALATION_RE in src/index.ts exactly.
+// Must mirror DEFAULT_ESCALATION_RE and FORCE_OVERRIDE_RE in src/index.ts exactly.
 const KEYWORD_RE =
   /\b(outage|mass\s+issue|multiple\s+agents|many\s+agents|no\s+inbound|not\s+receiving\s+inbound|since\s+\d{1,2}(:\d{2})?\s*(am|pm)?|abandoned\s+rate|sev\d)\b/i;
+const FORCE_OVERRIDE_RE = /\b(mass\s+issue|outage)\b/i;
 
-function shouldEscalate(text: string): boolean {
+function shouldEscalate(text: string, forceOverride = false): boolean {
   const intent = classify(text);
-  return intent !== null ? Boolean(intent.escalation) : KEYWORD_RE.test(text);
+  if (intent !== null) {
+    return Boolean(intent.escalation) || (forceOverride && FORCE_OVERRIDE_RE.test(text));
+  }
+  return KEYWORD_RE.test(text);
 }
 
 const cases: Array<{
   label:             string;
   text:              string;
+  forceOverride?:    boolean;
   expectIntentId:    string | null;
   expectEscalation:  boolean;
 }> = [
@@ -43,6 +48,20 @@ const cases: Array<{
     expectIntentId:   null,
     expectEscalation: false,
   },
+  {
+    label:            'FORCE_ESCALATION_OVERRIDE=false — "mass issue" does NOT override intent.escalation:false',
+    text:             'white screen mass issue',
+    forceOverride:    false,
+    expectIntentId:   'white_screen_refresh',
+    expectEscalation: false,
+  },
+  {
+    label:            'FORCE_ESCALATION_OVERRIDE=true — "mass issue" forces escalation despite intent.escalation:false',
+    text:             'white screen mass issue',
+    forceOverride:    true,
+    expectIntentId:   'white_screen_refresh',
+    expectEscalation: true,
+  },
 ];
 
 let passed = 0;
@@ -51,7 +70,7 @@ let failed = 0;
 for (const c of cases) {
   const intent      = classify(c.text);
   const intentId    = intent?.id ?? null;
-  const escalation  = shouldEscalate(c.text);
+  const escalation  = shouldEscalate(c.text, c.forceOverride);
   const intentOk    = intentId === c.expectIntentId;
   const escalOk     = escalation === c.expectEscalation;
   const ok          = intentOk && escalOk;

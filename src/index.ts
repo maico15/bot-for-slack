@@ -120,14 +120,12 @@ app.action<BlockAction>('works_in_incognito', async ({ ack, body, client }) => {
   await ack();
 
   const action = body.actions[0] as ButtonAction;
-  const { channel, thread_ts } = JSON.parse(action.value) as {
-    channel: string;
-    thread_ts: string;
-  };
+  const parsed = JSON.parse((action as any).value || '{}') as { channel?: string; thread_ts?: string };
+  if (!parsed.channel || !parsed.thread_ts) return;
 
   await client.chat.postMessage({
-    channel,
-    thread_ts,
+    channel: parsed.channel,
+    thread_ts: parsed.thread_ts,
     text: 'Resolved. The issue was likely caused by a browser extension or cached data. If it recurs, Incognito mode or clearing your cache should fix it.',
   });
 });
@@ -139,14 +137,12 @@ app.action<BlockAction>('still_not_working', async ({ ack, body, client }) => {
   await ack();
 
   const action = body.actions[0] as ButtonAction;
-  const { channel, thread_ts } = JSON.parse(action.value) as {
-    channel: string;
-    thread_ts: string;
-  };
+  const parsed = JSON.parse((action as any).value || '{}') as { channel?: string; thread_ts?: string };
+  if (!parsed.channel || !parsed.thread_ts) return;
 
   await client.chat.postMessage({
-    channel,
-    thread_ts,
+    channel: parsed.channel,
+    thread_ts: parsed.thread_ts,
     text: 'Please share these details so we can investigate.',
     blocks: [
       {

@@ -78,16 +78,56 @@ export const handledRoots = new TTLMap<string, true>(TTL.THREAD);
 /** Per-user spam guard — key = userId (90 s) */
 export const userCooldown = new TTLMap<string, true>(TTL.COOLDOWN);
 
+/** Diagnostics collected through the modal flow */
+export interface Diagnostics {
+  browserVersion?:     string;
+  incognitoTried?:     boolean;
+  extensionsDisabled?: boolean;
+  errorText?:          string;
+  startedWhen?:        string;
+  agentsAffected?:     string;
+  networkLatency?:     string;
+  networkPacketLoss?:  string;
+}
+
 /** Thread metrics — key = `${channelId}:${rootTs}` (7 days) */
 export interface MetricEntry {
-  intentId:     string;
-  status:       'open' | 'solved' | 'unsolved' | 'escalated';
-  createdAt:    number;
-  updatedAt:    number;
-  escalated?:   boolean;   // true once "Still not working" button sends the DM
-  escalatedAt?: number;
+  intentId:      string;
+  /** open → collecting (modal open) → ready (all steps done) → escalated | solved | unsolved */
+  status:        'open' | 'collecting' | 'ready' | 'escalated' | 'solved' | 'unsolved';
+  createdAt:     number;
+  updatedAt:     number;
+  // context populated at message-time
+  userId?:       string;
+  channelId?:    string;
+  rootTs?:       string;
+  originalText?: string;
+  // diagnostics populated during modal flow
+  diagnostics?:  Diagnostics;
+  // escalation
+  escalated?:    boolean;
+  escalatedAt?:  number;
 }
 export const metrics = new TTLMap<string, MetricEntry>(TTL.STATS);
+
+/**
+ * Create or deep-merge a MetricEntry. Safe to call multiple times;
+ * `diagnostics` sub-fields are merged (not replaced wholesale).
+ */
+export function upsertMetric(key: string, partial: Partial<MetricEntry>): MetricEntry {
+  const existing = metrics.get(key);
+  const next: MetricEntry = {
+    intentId:  'unknown',
+    status:    'open',
+    createdAt: Date.now(),
+    ...existing,
+    ...partial,
+    diagnostics: { ...existing?.diagnostics, ...partial?.diagnostics },
+    updatedAt:   Date.now(),
+  };
+  metrics.set(key, next);
+  return next;
+}
 
 /** Thread context for escalation DMs — key = `${channelId}:${rootTs}` (24 h) */
 export interface ThreadContext {
@@ -126,6 +166,8 @@ export function computeStats(): string {
   const solved      = entries.filter((e) => e.status === 'solved').length;
   const unsolved    = entries.filter((e) => e.status === 'unsolved').length;
   const escalated   = entries.filter((e) => e.status === 'escalated').length;
+  // 'collecting' and 'ready' are transient modal states; count them as open
+  const open        = total - solved - unsolved - escalated;
   const unknown     = entries.filter((e) => e.intentId === 'unknown').length;
   const unknownRate = ((unknown / total) * 100).toFixed(1);
 
@@ -140,7 +182,7 @@ export function computeStats(): string {
 
   return [
     '*System Assistant — Stats (last 7 days)*',
-    `*Total:* ${total}  |  *Solved ✅:* ${solved}  |  *Unsolved ❌:* ${unsolved}  |  *Escalated 🔴:* ${escalated}`,
+    `*Total:* ${total}  |  *Open:* ${open}  |  *Solved ✅:* ${solved}  |  *Unsolved ❌:* ${unsolved}  |  *Escalated 🔴:* ${escalated}`,
     `*Unknown:* ${unknown} (${unknownRate}%)`,
     '',
     '*Top intents:*',

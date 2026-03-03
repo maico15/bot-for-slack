@@ -1,9 +1,11 @@
 import { App, ExpressReceiver, BlockAction, ButtonAction } from '@slack/bolt';
+import type { WebClient } from '@slack/web-api';
 import * as dotenv from 'dotenv';
 import {
-  seenEventIds, handledRoots, userCooldown, metrics,
+  seenEventIds, handledRoots, userCooldown, metrics, upsertMetric,
   threadContexts, botMsgToThread,
   computeStats, startCleanup,
+  type Diagnostics,
 } from './store';
 import { classify, FALLBACK_REPLY } from './intents';
 
@@ -23,8 +25,221 @@ if (ALLOWED_CHANNELS.length === 0) {
 
 const ESCALATION_USER_ID = process.env.ESCALATION_USER_ID!;
 
-// ESCALATION_USER_ID receives a DM when a user clicks "Still not working".
-// No automatic escalation occurs — all escalation is button-driven.
+// ESCALATION_USER_ID receives a DM only after the user completes the diagnostic
+// modal and clicks "Escalate to support". No automatic escalation.
+
+// Intents that get an extra network-quality step (step 4) in the modal.
+const NETWORK_INTENTS = new Set(['packet_loss', 'attempting_reconnect']);
+
+// ---------------------------------------------------------------------------
+// Modal helpers
+// ---------------------------------------------------------------------------
+
+/** private_metadata shape passed through every modal step */
+type Meta = { channelId: string; rootTs: string };
+
+/** Minimal typing for Slack modal view objects */
+interface ModalView {
+  type:              'modal';
+  callback_id:       string;
+  private_metadata:  string;
+  title:             { type: 'plain_text'; text: string };
+  submit?:           { type: 'plain_text'; text: string };
+  close?:            { type: 'plain_text'; text: string };
+  blocks:            object[];
+}
+
+const YES_NO_OPTIONS = [
+  { text: { type: 'plain_text', text: 'Yes' }, value: 'yes' },
+  { text: { type: 'plain_text', text: 'No'  }, value: 'no'  },
+];
+
+function buildStep1Modal(meta: string): ModalView {
+  return {
+    type: 'modal', callback_id: 'diag_step_1', private_metadata: meta,
+    title:  { type: 'plain_text', text: 'Diagnostics (1 / 3)' },
+    submit: { type: 'plain_text', text: 'Next' },
+    close:  { type: 'plain_text', text: 'Cancel' },
+    blocks: [
+      {
+        type: 'input', block_id: 'browser_block',
+        label: { type: 'plain_text', text: 'Browser + version' },
+        element: {
+          type: 'plain_text_input', action_id: 'browser_version',
+          placeholder: { type: 'plain_text', text: 'e.g. Chrome 125, Edge 124' },
+        },
+      },
+      {
+        type: 'input', block_id: 'incognito_block',
+        label: { type: 'plain_text', text: 'Tried in Incognito / private window?' },
+        element: {
+          type: 'static_select', action_id: 'incognito_tried',
+          placeholder: { type: 'plain_text', text: 'Select' },
+          options: YES_NO_OPTIONS,
+        },
+      },
+    ],
+  };
+}
+
+function buildStep2Modal(meta: string): ModalView {
+  return {
+    type: 'modal', callback_id: 'diag_step_2', private_metadata: meta,
+    title:  { type: 'plain_text', text: 'Diagnostics (2 / 3)' },
+    submit: { type: 'plain_text', text: 'Next' },
+    close:  { type: 'plain_text', text: 'Cancel' },
+    blocks: [
+      {
+        type: 'input', block_id: 'extensions_block',
+        label: { type: 'plain_text', text: 'Extensions disabled?' },
+        element: {
+          type: 'static_select', action_id: 'extensions_disabled',
+          placeholder: { type: 'plain_text', text: 'Select' },
+          options: YES_NO_OPTIONS,
+        },
+      },
+      {
+        type: 'input', block_id: 'error_block', optional: true,
+        label: { type: 'plain_text', text: 'Error text or screenshot link' },
+        element: {
+          type: 'plain_text_input', action_id: 'error_text',
+          placeholder: { type: 'plain_text', text: 'Paste error message or link (optional)' },
+        },
+      },
+    ],
+  };
+}
+
+function buildStep3Modal(meta: string): ModalView {
+  return {
+    type: 'modal', callback_id: 'diag_step_3', private_metadata: meta,
+    title:  { type: 'plain_text', text: 'Diagnostics (3 / 3)' },
+    submit: { type: 'plain_text', text: 'Next' },
+    close:  { type: 'plain_text', text: 'Cancel' },
+    blocks: [
+      {
+        type: 'input', block_id: 'started_block',
+        label: { type: 'plain_text', text: 'When did the issue start?' },
+        element: {
+          type: 'plain_text_input', action_id: 'started_when',
+          placeholder: { type: 'plain_text', text: 'e.g. today at 9am, after yesterday\'s update' },
+        },
+      },
+      {
+        type: 'input', block_id: 'agents_block',
+        label: { type: 'plain_text', text: 'How many agents are affected?' },
+        element: {
+          type: 'plain_text_input', action_id: 'agents_affected',
+          placeholder: { type: 'plain_text', text: 'e.g. 1, ~5, all agents' },
+        },
+      },
+    ],
+  };
+}
+
+function buildStep4Modal(meta: string): ModalView {
+  return {
+    type: 'modal', callback_id: 'diag_step_4', private_metadata: meta,
+    title:  { type: 'plain_text', text: 'Network Details' },
+    submit: { type: 'plain_text', text: 'Review' },
+    close:  { type: 'plain_text', text: 'Cancel' },
+    blocks: [
+      {
+        type: 'input', block_id: 'latency_block', optional: true,
+        label: { type: 'plain_text', text: 'Twilio Network Test — Latency (ms)' },
+        element: {
+          type: 'plain_text_input', action_id: 'network_latency',
+          placeholder: { type: 'plain_text', text: 'e.g. 142' },
+        },
+      },
+      {
+        type: 'input', block_id: 'packet_loss_block', optional: true,
+        label: { type: 'plain_text', text: 'Twilio Network Test — Packet loss (%)' },
+        element: {
+          type: 'plain_text_input', action_id: 'network_packet_loss',
+          placeholder: { type: 'plain_text', text: 'e.g. 2.5' },
+        },
+      },
+    ],
+  };
+}
+
+function buildConfirmModal(meta: string, diag: Diagnostics, intentId: string): ModalView {
+  const yn = (v?: boolean) => v === true ? 'Yes' : v === false ? 'No' : '—';
+  const isNetwork = NETWORK_INTENTS.has(intentId);
+  const lines = [
+    `• *Browser:* ${diag.browserVersion ?? '—'}`,
+    `• *Incognito tried:* ${yn(diag.incognitoTried)}`,
+    `• *Extensions disabled:* ${yn(diag.extensionsDisabled)}`,
+    `• *Error text:* ${diag.errorText || '—'}`,
+    `• *Started when:* ${diag.startedWhen ?? '—'}`,
+    `• *Agents affected:* ${diag.agentsAffected ?? '—'}`,
+    ...(isNetwork ? [
+      `• *Network latency (ms):* ${diag.networkLatency || '—'}`,
+      `• *Packet loss (%):* ${diag.networkPacketLoss || '—'}`,
+    ] : []),
+  ];
+  return {
+    type: 'modal', callback_id: 'diag_confirm', private_metadata: meta,
+    title:  { type: 'plain_text', text: 'Review & Escalate' },
+    submit: { type: 'plain_text', text: 'Escalate to support' },
+    close:  { type: 'plain_text', text: 'Cancel' },
+    blocks: [
+      {
+        type: 'section',
+        text: { type: 'mrkdwn', text: '*Review your diagnostics before escalating:*\n\n' + lines.join('\n') },
+      },
+    ],
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Escalation DM helper — called only from diag_confirm view handler
+// ---------------------------------------------------------------------------
+async function sendEscalationDM(
+  client: WebClient,
+  channelId: string,
+  rootTs: string,
+  userId: string,
+  intentId: string,
+  originalText: string,
+  diag: Diagnostics,
+): Promise<void> {
+  let permalink = `https://slack.com/archives/${channelId}/p${rootTs.replace('.', '')}`;
+  try {
+    const pl = await client.chat.getPermalink({ channel: channelId, message_ts: rootTs });
+    if (pl.permalink) permalink = pl.permalink as string;
+  } catch { /* non-fatal — fall back to constructed URL */ }
+
+  const yn = (v?: boolean) => v === true ? 'Yes' : v === false ? 'No' : '—';
+  const truncated = originalText.length > 500
+    ? `${originalText.slice(0, 497)}\u2026`
+    : originalText;
+
+  const dmLines = [
+    '*Escalation — user confirmed via modal*',
+    `• *Intent:* ${intentId}`,
+    `• *Reporter:* <@${userId}>`,
+    `• *Channel:* <#${channelId}>`,
+    `• *Permalink:* ${permalink}`,
+    `• *Original message:* ${truncated}`,
+    '',
+    '*Diagnostics:*',
+    `• *Browser:* ${diag.browserVersion ?? '—'}`,
+    `• *Incognito tried:* ${yn(diag.incognitoTried)}`,
+    `• *Extensions disabled:* ${yn(diag.extensionsDisabled)}`,
+    `• *Error text:* ${diag.errorText || '—'}`,
+    `• *Started when:* ${diag.startedWhen ?? '—'}`,
+    `• *Agents affected:* ${diag.agentsAffected ?? '—'}`,
+    ...(diag.networkLatency    ? [`• *Network latency (ms):* ${diag.networkLatency}`]    : []),
+    ...(diag.networkPacketLoss ? [`• *Packet loss (%):* ${diag.networkPacketLoss}`] : []),
+    '',
+    'Please check the thread for any additional context from the user.',
+  ];
+
+  const { channel: dm } = await client.conversations.open({ users: ESCALATION_USER_ID });
+  await client.chat.postMessage({ channel: dm!.id!, text: dmLines.join('\n') });
+}
 
 // ---------------------------------------------------------------------------
 // Receiver + App
@@ -151,9 +366,13 @@ app.message(async ({ message, client, body }) => {
   // 9. Record metrics (intentId = 'unknown' when no pattern matched)
   metrics.set(metricsKey, {
     intentId,
-    status:    'open',
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
+    status:      'open',
+    createdAt:   Date.now(),
+    updatedAt:   Date.now(),
+    userId:      msg.user,
+    channelId:   msg.channel,
+    rootTs,
+    originalText: text,
   });
 
 });
@@ -186,7 +405,14 @@ app.action<BlockAction>('resolved', async ({ ack, body, client }) => {
 });
 
 // ---------------------------------------------------------------------------
-// Action: "Still not working" — asks for diagnostics + sends escalation DM
+// Action: "Still not working" — opens diagnostic modal (step 1)
+// No DM is sent here. Escalation happens only after the user confirms
+// in the final modal step ("Escalate to support" button).
+//
+// Smoke-test: post any message in an allowed channel, click "Still not working"
+//   → modal should open titled "Diagnostics (1 / 3)"
+//   → clicking Cancel closes with no side-effects
+//   → completing all steps and clicking "Escalate to support" sends exactly one DM
 // ---------------------------------------------------------------------------
 app.action<BlockAction>('still_not_working', async ({ ack, body, client }) => {
   await ack();
@@ -198,83 +424,150 @@ app.action<BlockAction>('still_not_working', async ({ ack, body, client }) => {
   };
   if (!parsed.channel || !parsed.thread_ts) return;
 
-  const metricsKey = `${parsed.channel}:${parsed.thread_ts}`;
+  const { channel, thread_ts: rootTs } = parsed;
+  const metricsKey = `${channel}:${rootTs}`;
   const entry      = metrics.get(metricsKey);
 
-  // Idempotent — only escalate once
+  // Already escalated — tell user and bail (no modal)
   if (entry?.escalated) {
-    console.log(`[action] skip: already escalated metricsKey=${metricsKey}`);
+    await client.chat.postEphemeral({
+      channel,
+      user: (body as any).user?.id ?? '',
+      text: 'This thread has already been escalated. The team is looking into it.',
+    });
     return;
   }
 
-  // Mark immediately to prevent concurrent double-sends
-  if (entry) {
-    entry.status      = 'escalated';
-    entry.escalated   = true;
-    entry.escalatedAt = Date.now();
-    entry.updatedAt   = Date.now();
-  }
+  // Mark as collecting so concurrent button clicks don't race
+  upsertMetric(metricsKey, { status: 'collecting' });
 
-  // 1. Post diagnostics prompt in thread
-  const diagResult = await client.chat.postMessage({
-    channel:   parsed.channel,
-    thread_ts: parsed.thread_ts,
-    text:      'I have alerted the team. While they investigate, please reply with:',
-    blocks: [
-      {
-        type: 'section',
-        text: {
-          type: 'mrkdwn',
-          text: [
-            'I have alerted the team. While they investigate, please reply with:',
-            '',
-            '• *Browser + version:*',
-            '• *Incognito tried:* Y / N',
-            '• *Extensions disabled:* Y / N',
-            '• *Error text or screenshot:*',
-            '• *When did it start + how many agents affected:*',
-          ].join('\n'),
-        },
-      },
-    ],
+  const meta = JSON.stringify({ channelId: channel, rootTs } satisfies Meta);
+  try {
+    await client.views.open({
+      trigger_id: (body as any).trigger_id,
+      view: buildStep1Modal(meta) as any,
+    });
+  } catch (err) {
+    console.error(`[action] views.open failed key=${metricsKey}:`, err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Modal view handlers
+// Each intermediate step acks with response_action:'update' so the same modal
+// window updates in place (no flicker, single trigger_id consumed).
+// ---------------------------------------------------------------------------
+
+// Step 1 → step 2 : browser + incognito
+app.view('diag_step_1', async ({ ack, view }) => {
+  const { channelId, rootTs } = JSON.parse(view.private_metadata) as Meta;
+  const vals = view.state.values as Record<string, Record<string, any>>;
+
+  upsertMetric(`${channelId}:${rootTs}`, {
+    diagnostics: {
+      browserVersion: vals['browser_block']['browser_version'].value ?? '',
+      incognitoTried: vals['incognito_block']['incognito_tried'].selected_option?.value === 'yes',
+    },
   });
-  if (diagResult.ts) {
-    botMsgToThread.set(diagResult.ts, { metricsKey });
+
+  await ack({ response_action: 'update', view: buildStep2Modal(view.private_metadata) } as any);
+});
+
+// Step 2 → step 3 : extensions + error text
+app.view('diag_step_2', async ({ ack, view }) => {
+  const { channelId, rootTs } = JSON.parse(view.private_metadata) as Meta;
+  const vals = view.state.values as Record<string, Record<string, any>>;
+
+  upsertMetric(`${channelId}:${rootTs}`, {
+    diagnostics: {
+      extensionsDisabled: vals['extensions_block']['extensions_disabled'].selected_option?.value === 'yes',
+      errorText:          vals['error_block']['error_text'].value ?? undefined,
+    },
+  });
+
+  await ack({ response_action: 'update', view: buildStep3Modal(view.private_metadata) } as any);
+});
+
+// Step 3 → step 4 (network intents) OR confirm modal
+app.view('diag_step_3', async ({ ack, view }) => {
+  const { channelId, rootTs } = JSON.parse(view.private_metadata) as Meta;
+  const vals = view.state.values as Record<string, Record<string, any>>;
+
+  const entry = upsertMetric(`${channelId}:${rootTs}`, {
+    status: 'ready',
+    diagnostics: {
+      startedWhen:    vals['started_block']['started_when'].value ?? '',
+      agentsAffected: vals['agents_block']['agents_affected'].value ?? '',
+    },
+  });
+
+  const next = NETWORK_INTENTS.has(entry.intentId)
+    ? buildStep4Modal(view.private_metadata)
+    : buildConfirmModal(view.private_metadata, entry.diagnostics ?? {}, entry.intentId);
+
+  await ack({ response_action: 'update', view: next } as any);
+});
+
+// Step 4 (network) → confirm modal
+app.view('diag_step_4', async ({ ack, view }) => {
+  const { channelId, rootTs } = JSON.parse(view.private_metadata) as Meta;
+  const vals = view.state.values as Record<string, Record<string, any>>;
+
+  const entry = upsertMetric(`${channelId}:${rootTs}`, {
+    diagnostics: {
+      networkLatency:    vals['latency_block']['network_latency'].value ?? undefined,
+      networkPacketLoss: vals['packet_loss_block']['network_packet_loss'].value ?? undefined,
+    },
+  });
+
+  await ack({
+    response_action: 'update',
+    view: buildConfirmModal(view.private_metadata, entry.diagnostics ?? {}, entry.intentId),
+  } as any);
+});
+
+// Confirm → send DM + post in thread
+// This is the ONLY place where ESCALATION_USER_ID receives a DM.
+app.view('diag_confirm', async ({ ack, view, client }) => {
+  await ack(); // close modal immediately; async work follows
+
+  const { channelId, rootTs } = JSON.parse(view.private_metadata) as Meta;
+  const key   = `${channelId}:${rootTs}`;
+  const entry = metrics.get(key);
+  if (!entry) return;
+
+  // Idempotent — guard against double-submit race
+  if (entry.escalated) {
+    console.log(`[diag_confirm] skip: already escalated key=${key}`);
+    return;
   }
 
-  // 2. Send escalation DM to owner
-  const rootTs = parsed.thread_ts;
-  let permalink = `https://slack.com/archives/${parsed.channel}/p${rootTs.replace('.', '')}`;
+  upsertMetric(key, { status: 'escalated', escalated: true, escalatedAt: Date.now() });
+
   try {
-    const pl = await client.chat.getPermalink({ channel: parsed.channel, message_ts: rootTs });
-    if (pl.permalink) permalink = pl.permalink as string;
+    const updated = metrics.get(key)!;
+    await sendEscalationDM(
+      client,
+      channelId,
+      rootTs,
+      updated.userId       ?? 'unknown',
+      updated.intentId,
+      updated.originalText ?? '',
+      updated.diagnostics  ?? {},
+    );
+    console.log(`[diag_confirm] escalation DM sent key=${key}`);
   } catch (err) {
-    console.error(`[action] error fetching permalink metricsKey=${metricsKey}:`, err);
+    console.error(`[diag_confirm] DM failed key=${key}:`, err);
   }
 
-  const ctx       = threadContexts.get(metricsKey);
-  const intentId  = ctx?.intentId ?? entry?.intentId ?? 'unknown';
-  const userText  = ctx?.userText ?? '';
-  const truncated = userText.length > 500 ? `${userText.slice(0, 497)}\u2026` : userText;
-
-  const dmLines = [
-    '*Escalation — "Still not working" button*',
-    `• *Intent:* ${intentId}`,
-    `• *Reporter:* <@${ctx?.userId ?? 'unknown'}>`,
-    `• *Channel:* <#${parsed.channel}>`,
-    `• *Permalink:* ${permalink}`,
-    `• *Original message:* ${truncated}`,
-    `• *Bot replied:* ${ctx?.botReplyText ?? '(unknown)'}`,
-    '',
-    'Please check the thread — the user has been asked for diagnostics.',
-  ];
-
   try {
-    const { channel: dm } = await client.conversations.open({ users: ESCALATION_USER_ID });
-    await client.chat.postMessage({ channel: dm!.id!, text: dmLines.join('\n') });
-    console.log(`[action] escalation DM sent metricsKey=${metricsKey}`);
+    await client.chat.postMessage({
+      channel:   channelId,
+      thread_ts: rootTs,
+      text:      'Escalated ✅. Thanks — the team will take a look.',
+    });
   } catch (err) {
-    console.error(`[action] error sending escalation DM metricsKey=${metricsKey}:`, err);
+    console.error(`[diag_confirm] thread post failed key=${key}:`, err);
   }
 });
 

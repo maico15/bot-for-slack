@@ -32,12 +32,25 @@ intents:
       2. Refresh the page after granting permission
       3. If blocked by browser policy, check `chrome://settings/content/microphone`
 
-      Please reply with:
-      • *Browser + version:*
-      • *Incognito tried:* Y / N
-      • *Extensions disabled:* Y / N
-      • *Error text or screenshot:*
-      • *When did it start + how many agents affected:*
+      Please reply with the details below (copy/paste and fill in):
+
+      - Browser + version:
+        (Example: "Chrome 122.0", "Edge 121", "Firefox 123". You can find it in Menu → Help → About.)
+
+      - Incognito tried: Y / N
+        (Did you try opening Flex/Twilio in an Incognito/Private window to rule out cache/session issues?)
+
+      - Extensions disabled: Y / N
+        (Did you try disabling browser extensions like adblockers, security tools, password managers, etc., or testing in a clean browser profile?)
+
+      - Error text or screenshot:
+        (Paste the exact error message if you see one, or attach a screenshot. If it's just a blank/white screen, say "white screen" and when it happens.)
+
+      - When did it start (time + timezone):
+        (Example: "Started 09:10 AM PST" / "Started 14:30 UTC".)
+
+      - How many agents are affected:
+        (Example: "Only me" / "3 agents" / "Everyone in the queue".)
     escalation: false
 
   - id: attempting_reconnect
@@ -56,12 +69,25 @@ intents:
       2. Refresh Flex (do not close the tab mid-call)
       3. Open in Incognito (`Ctrl+Shift+N`) to rule out extension interference
 
-      Please reply with:
-      • *Browser + version:*
-      • *Incognito tried:* Y / N
-      • *Extensions disabled:* Y / N
-      • *Error text or screenshot:*
-      • *When did it start + how many agents affected:*
+      Please reply with the details below (copy/paste and fill in):
+
+      - Browser + version:
+        (Example: "Chrome 122.0", "Edge 121", "Firefox 123". You can find it in Menu → Help → About.)
+
+      - Incognito tried: Y / N
+        (Did you try opening Flex/Twilio in an Incognito/Private window to rule out cache/session issues?)
+
+      - Extensions disabled: Y / N
+        (Did you try disabling browser extensions like adblockers, security tools, password managers, etc., or testing in a clean browser profile?)
+
+      - Error text or screenshot:
+        (Paste the exact error message if you see one, or attach a screenshot. If it's just a blank/white screen, say "white screen" and when it happens.)
+
+      - When did it start (time + timezone):
+        (Example: "Started 09:10 AM PST" / "Started 14:30 UTC".)
+
+      - How many agents are affected:
+        (Example: "Only me" / "3 agents" / "Everyone in the queue".)
     escalation: false
 
   - id: packet_loss
@@ -84,13 +110,28 @@ intents:
       3. Close any bandwidth-heavy apps or browser tabs
       4. Refresh Flex in Incognito and retest audio
 
-      Please reply with:
-      • *Browser + version:*
-      • *Incognito tried:* Y / N
-      • *Extensions disabled:* Y / N
-      • *Error text or screenshot:*
-      • *When did it start + how many agents affected:*
-      • *Twilio Network Test — Latency (ms):*  Jitter (ms):*  Packet loss (%):*
+      Please reply with the details below (copy/paste and fill in):
+
+      - Browser + version:
+        (Example: "Chrome 122.0", "Edge 121", "Firefox 123". You can find it in Menu → Help → About.)
+
+      - Incognito tried: Y / N
+        (Did you try opening Flex/Twilio in an Incognito/Private window to rule out cache/session issues?)
+
+      - Extensions disabled: Y / N
+        (Did you try disabling browser extensions like adblockers, security tools, password managers, etc., or testing in a clean browser profile?)
+
+      - Error text or screenshot:
+        (Paste the exact error message if you see one, or attach a screenshot. If it's just a blank/white screen, say "white screen" and when it happens.)
+
+      - When did it start (time + timezone):
+        (Example: "Started 09:10 AM PST" / "Started 14:30 UTC".)
+
+      - How many agents are affected:
+        (Example: "Only me" / "3 agents" / "Everyone in the queue".)
+
+      - Twilio Network Test results:
+        (Run https://networktest.twilio.com and paste: Latency (ms) / Jitter (ms) / Packet loss (%).)
     escalation: false
 
   - id: agent_not_eligible_45301
@@ -107,14 +148,31 @@ intents:
       2. Confirm agent status is set to *Available* (not Offline or Busy)
       3. Open in Incognito and retry
 
-      Please reply with:
-      • *Browser + version:*
-      • *Incognito tried:* Y / N
-      • *Extensions disabled:* Y / N
-      • *Error text or screenshot:*
-      • *When did it start + how many agents affected:*
-      • *Agent status at the time of the error:*
-      • *Skills / queues assigned to the affected agent(s):*
+      Please reply with the details below (copy/paste and fill in):
+
+      - Browser + version:
+        (Example: "Chrome 122.0", "Edge 121", "Firefox 123". You can find it in Menu → Help → About.)
+
+      - Incognito tried: Y / N
+        (Did you try opening Flex/Twilio in an Incognito/Private window to rule out cache/session issues?)
+
+      - Extensions disabled: Y / N
+        (Did you try disabling browser extensions like adblockers, security tools, password managers, etc., or testing in a clean browser profile?)
+
+      - Error text or screenshot:
+        (Paste the exact error message if you see one, or attach a screenshot. If it's just a blank/white screen, say "white screen" and when it happens.)
+
+      - When did it start (time + timezone):
+        (Example: "Started 09:10 AM PST" / "Started 14:30 UTC".)
+
+      - How many agents are affected:
+        (Example: "Only me" / "3 agents" / "Everyone in the queue".)
+
+      - Agent status at the time of the error:
+        (Example: "Available", "Offline", "Busy".)
+
+      - Skills / queues assigned to the affected agent(s):
+        (List the skill or queue names shown in the Flex admin panel.)
     escalation: false
 
   - id: outbound_call_error
@@ -136,12 +194,25 @@ intents:
       2. Open in Incognito (`Ctrl+Shift+N`) to rule out extension conflicts
       3. Confirm microphone access is allowed in browser settings
 
-      Please reply with:
-      • *Browser + version:*
-      • *Incognito tried:* Y / N
-      • *Extensions disabled:* Y / N
-      • *Error text or screenshot:*
-      • *When did it start + how many agents affected:*
+      Please reply with the details below (copy/paste and fill in):
+
+      - Browser + version:
+        (Example: "Chrome 122.0", "Edge 121", "Firefox 123". You can find it in Menu → Help → About.)
+
+      - Incognito tried: Y / N
+        (Did you try opening Flex/Twilio in an Incognito/Private window to rule out cache/session issues?)
+
+      - Extensions disabled: Y / N
+        (Did you try disabling browser extensions like adblockers, security tools, password managers, etc., or testing in a clean browser profile?)
+
+      - Error text or screenshot:
+        (Paste the exact error message if you see one, or attach a screenshot. If it's just a blank/white screen, say "white screen" and when it happens.)
+
+      - When did it start (time + timezone):
+        (Example: "Started 09:10 AM PST" / "Started 14:30 UTC".)
+
+      - How many agents are affected:
+        (Example: "Only me" / "3 agents" / "Everyone in the queue".)
     escalation: false
 
   - id: ringing_not_visible
@@ -162,12 +233,25 @@ intents:
       3. Refresh Flex and wait for a test inbound call
       4. Open in Incognito and retest
 
-      Please reply with:
-      • *Browser + version:*
-      • *Incognito tried:* Y / N
-      • *Extensions disabled:* Y / N
-      • *Error text or screenshot:*
-      • *When did it start + how many agents affected:*
+      Please reply with the details below (copy/paste and fill in):
+
+      - Browser + version:
+        (Example: "Chrome 122.0", "Edge 121", "Firefox 123". You can find it in Menu → Help → About.)
+
+      - Incognito tried: Y / N
+        (Did you try opening Flex/Twilio in an Incognito/Private window to rule out cache/session issues?)
+
+      - Extensions disabled: Y / N
+        (Did you try disabling browser extensions like adblockers, security tools, password managers, etc., or testing in a clean browser profile?)
+
+      - Error text or screenshot:
+        (Paste the exact error message if you see one, or attach a screenshot. If it's just a blank/white screen, say "white screen" and when it happens.)
+
+      - When did it start (time + timezone):
+        (Example: "Started 09:10 AM PST" / "Started 14:30 UTC".)
+
+      - How many agents are affected:
+        (Example: "Only me" / "3 agents" / "Everyone in the queue".)
     escalation: true
 
   - id: white_screen_refresh
@@ -190,12 +274,25 @@ intents:
       3. Disable extensions one by one to identify the culprit
       4. Clear browser cache if Incognito resolves it
 
-      Please reply with:
-      • *Browser + version:*
-      • *Incognito tried:* Y / N
-      • *Extensions disabled:* Y / N
-      • *Error text or screenshot:*
-      • *When did it start + how many agents affected:*
+      Please reply with the details below (copy/paste and fill in):
+
+      - Browser + version:
+        (Example: "Chrome 122.0", "Edge 121", "Firefox 123". You can find it in Menu → Help → About.)
+
+      - Incognito tried: Y / N
+        (Did you try opening Flex/Twilio in an Incognito/Private window to rule out cache/session issues?)
+
+      - Extensions disabled: Y / N
+        (Did you try disabling browser extensions like adblockers, security tools, password managers, etc., or testing in a clean browser profile?)
+
+      - Error text or screenshot:
+        (Paste the exact error message if you see one, or attach a screenshot. If it's just a blank/white screen, say "white screen" and when it happens.)
+
+      - When did it start (time + timezone):
+        (Example: "Started 09:10 AM PST" / "Started 14:30 UTC".)
+
+      - How many agents are affected:
+        (Example: "Only me" / "3 agents" / "Everyone in the queue".)
     escalation: false
 
   - id: inbound_missing
@@ -217,10 +314,23 @@ intents:
       3. Open in Incognito to rule out extension / cache issues
       4. Verify no active queue overflow or routing rule change
 
-      Please reply with:
-      • *Browser + version:*
-      • *Incognito tried:* Y / N
-      • *Extensions disabled:* Y / N
-      • *Error text or screenshot:*
-      • *When did it start + how many agents affected:*
+      Please reply with the details below (copy/paste and fill in):
+
+      - Browser + version:
+        (Example: "Chrome 122.0", "Edge 121", "Firefox 123". You can find it in Menu → Help → About.)
+
+      - Incognito tried: Y / N
+        (Did you try opening Flex/Twilio in an Incognito/Private window to rule out cache/session issues?)
+
+      - Extensions disabled: Y / N
+        (Did you try disabling browser extensions like adblockers, security tools, password managers, etc., or testing in a clean browser profile?)
+
+      - Error text or screenshot:
+        (Paste the exact error message if you see one, or attach a screenshot. If it's just a blank/white screen, say "white screen" and when it happens.)
+
+      - When did it start (time + timezone):
+        (Example: "Started 09:10 AM PST" / "Started 14:30 UTC".)
+
+      - How many agents are affected:
+        (Example: "Only me" / "3 agents" / "Everyone in the queue".)
     escalation: true

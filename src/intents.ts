@@ -38,12 +38,26 @@ export interface ClassifyResult {
 // English-only fallback for unrecognised issues
 // ---------------------------------------------------------------------------
 export const FALLBACK_REPLY = [
-  'We were unable to identify the specific issue. Please reply with:',
-  '• *Browser + version:*',
-  '• *Incognito tried:* Y / N',
-  '• *Extensions disabled:* Y / N',
-  '• *Error text or screenshot:*',
-  '• *When did it start + how many agents affected:*',
+  'We were unable to identify the specific issue automatically.',
+  'Please reply with the details below (copy/paste and fill in):',
+  '',
+  '- Browser + version:',
+  '  (Example: "Chrome 122.0", "Edge 121", "Firefox 123". You can find it in Menu → Help → About.)',
+  '',
+  '- Incognito tried: Y / N',
+  '  (Did you try opening Flex/Twilio in an Incognito/Private window to rule out cache/session issues?)',
+  '',
+  '- Extensions disabled: Y / N',
+  '  (Did you try disabling browser extensions like adblockers, security tools, password managers, etc., or testing in a clean browser profile?)',
+  '',
+  '- Error text or screenshot:',
+  '  (Paste the exact error message if you see one, or attach a screenshot. If it\'s just a blank/white screen, say "white screen" and when it happens.)',
+  '',
+  '- When did it start (time + timezone):',
+  '  (Example: "Started 09:10 AM PST" / "Started 14:30 UTC".)',
+  '',
+  '- How many agents are affected:',
+  '  (Example: "Only me" / "3 agents" / "Everyone in the queue".)',
 ].join('\n');
 
 // ---------------------------------------------------------------------------

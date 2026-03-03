@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: system-assistant
+    runtime: node
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: SLACK_BOT_TOKEN
+        sync: false
+      - key: SLACK_SIGNING_SECRET
+        sync: false
+      - key: CHANNEL_ALLOWLIST
+        sync: false
+      - key: ESCALATION_USER_ID
+        sync: false
+      - key: ESCALATION_KEYWORDS
+        sync: false
+      - key: PORT
+        value: 3000

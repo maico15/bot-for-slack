@@ -62,7 +62,7 @@ function buildStep1Modal(meta: string): ModalView {
     close:  { type: 'plain_text', text: 'Cancel' },
     blocks: [
       {
-        type: 'input', block_id: 'browser_block',
+        type: 'input', block_id: 'browser',
         label: { type: 'plain_text', text: 'Browser + version' },
         element: {
           type: 'plain_text_input', action_id: 'browser_version',
@@ -70,10 +70,10 @@ function buildStep1Modal(meta: string): ModalView {
         },
       },
       {
-        type: 'input', block_id: 'incognito_block',
+        type: 'input', block_id: 'incognito',
         label: { type: 'plain_text', text: 'Tried in Incognito / private window?' },
         element: {
-          type: 'static_select', action_id: 'incognito_tried',
+          type: 'static_select', action_id: 'incognito_select',
           placeholder: { type: 'plain_text', text: 'Select' },
           options: YES_NO_OPTIONS,
         },
@@ -90,19 +90,19 @@ function buildStep2Modal(meta: string): ModalView {
     close:  { type: 'plain_text', text: 'Cancel' },
     blocks: [
       {
-        type: 'input', block_id: 'extensions_block',
+        type: 'input', block_id: 'extensions',
         label: { type: 'plain_text', text: 'Extensions disabled?' },
         element: {
-          type: 'static_select', action_id: 'extensions_disabled',
+          type: 'static_select', action_id: 'extensions_select',
           placeholder: { type: 'plain_text', text: 'Select' },
           options: YES_NO_OPTIONS,
         },
       },
       {
-        type: 'input', block_id: 'error_block', optional: true,
+        type: 'input', block_id: 'error', optional: true,
         label: { type: 'plain_text', text: 'Error text or screenshot link' },
         element: {
-          type: 'plain_text_input', action_id: 'error_text',
+          type: 'plain_text_input', action_id: 'error_text', multiline: true,
           placeholder: { type: 'plain_text', text: 'Paste error message or link (optional)' },
         },
       },
@@ -118,7 +118,7 @@ function buildStep3Modal(meta: string): ModalView {
     close:  { type: 'plain_text', text: 'Cancel' },
     blocks: [
       {
-        type: 'input', block_id: 'started_block',
+        type: 'input', block_id: 'started',
         label: { type: 'plain_text', text: 'When did the issue start?' },
         element: {
           type: 'plain_text_input', action_id: 'started_when',
@@ -126,7 +126,7 @@ function buildStep3Modal(meta: string): ModalView {
         },
       },
       {
-        type: 'input', block_id: 'agents_block',
+        type: 'input', block_id: 'affected',
         label: { type: 'plain_text', text: 'How many agents are affected?' },
         element: {
           type: 'plain_text_input', action_id: 'agents_affected',
@@ -145,18 +145,18 @@ function buildStep4Modal(meta: string): ModalView {
     close:  { type: 'plain_text', text: 'Cancel' },
     blocks: [
       {
-        type: 'input', block_id: 'latency_block', optional: true,
+        type: 'input', block_id: 'latency', optional: true,
         label: { type: 'plain_text', text: 'Twilio Network Test — Latency (ms)' },
         element: {
-          type: 'plain_text_input', action_id: 'network_latency',
+          type: 'plain_text_input', action_id: 'latency_ms',
           placeholder: { type: 'plain_text', text: 'e.g. 142' },
         },
       },
       {
-        type: 'input', block_id: 'packet_loss_block', optional: true,
+        type: 'input', block_id: 'loss', optional: true,
         label: { type: 'plain_text', text: 'Twilio Network Test — Packet loss (%)' },
         element: {
-          type: 'plain_text_input', action_id: 'network_packet_loss',
+          type: 'plain_text_input', action_id: 'packet_loss',
           placeholder: { type: 'plain_text', text: 'e.g. 2.5' },
         },
       },
@@ -465,8 +465,8 @@ app.view('diag_step_1', async ({ ack, view }) => {
 
   upsertMetric(`${channelId}:${rootTs}`, {
     diagnostics: {
-      browserVersion: vals['browser_block']['browser_version'].value ?? '',
-      incognitoTried: vals['incognito_block']['incognito_tried'].selected_option?.value === 'yes',
+      browserVersion: vals['browser']['browser_version'].value ?? '',
+      incognitoTried: vals['incognito']['incognito_select'].selected_option?.value === 'yes',
     },
   });
 
@@ -480,8 +480,8 @@ app.view('diag_step_2', async ({ ack, view }) => {
 
   upsertMetric(`${channelId}:${rootTs}`, {
     diagnostics: {
-      extensionsDisabled: vals['extensions_block']['extensions_disabled'].selected_option?.value === 'yes',
-      errorText:          vals['error_block']['error_text'].value ?? undefined,
+      extensionsDisabled: vals['extensions']['extensions_select'].selected_option?.value === 'yes',
+      errorText:          vals['error']['error_text'].value ?? undefined,
     },
   });
 
@@ -496,8 +496,8 @@ app.view('diag_step_3', async ({ ack, view }) => {
   const entry = upsertMetric(`${channelId}:${rootTs}`, {
     status: 'ready',
     diagnostics: {
-      startedWhen:    vals['started_block']['started_when'].value ?? '',
-      agentsAffected: vals['agents_block']['agents_affected'].value ?? '',
+      startedWhen:    vals['started']['started_when'].value ?? '',
+      agentsAffected: vals['affected']['agents_affected'].value ?? '',
     },
   });
 
@@ -515,8 +515,8 @@ app.view('diag_step_4', async ({ ack, view }) => {
 
   const entry = upsertMetric(`${channelId}:${rootTs}`, {
     diagnostics: {
-      networkLatency:    vals['latency_block']['network_latency'].value ?? undefined,
-      networkPacketLoss: vals['packet_loss_block']['network_packet_loss'].value ?? undefined,
+      networkLatency:    vals['latency']['latency_ms'].value ?? undefined,
+      networkPacketLoss: vals['loss']['packet_loss'].value ?? undefined,
     },
   });
 
